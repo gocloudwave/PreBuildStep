@@ -6,6 +6,37 @@ GITHUB_API_USER="https://api.github.com/user"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
+# Read a token with * masking — supports typing, paste, and backspace.
+# Usage: read_masked_token "Prompt: " VAR_NAME
+read_masked_token() {
+    local prompt="${1:-Enter token: }"
+    local __var="${2:-GITHUB_TOKEN}"
+    local token="" char
+    local old_stty
+    old_stty=$(stty -g 2>/dev/null)
+    [ -t 0 ] && stty -echo -icanon min 1 time 0 2>/dev/null
+    printf '%s' "$prompt" >&2
+    while IFS= read -r -d '' -n1 char 2>/dev/null; do
+        case "$char" in
+            $'\n'|$'\r')            break ;;
+            $'\x7f'|$'\x08')        # backspace / DEL
+                if [ ${#token} -gt 0 ]; then
+                    token="${token%?}"
+                    printf '\b \b' >&2
+                fi ;;
+            $'\x03')                # Ctrl-C
+                [ -t 0 ] && stty "$old_stty" 2>/dev/null
+                printf '\n' >&2; exit 130 ;;
+            *)
+                token+="$char"
+                printf '*' >&2 ;;
+        esac
+    done
+    [ -t 0 ] && stty "$old_stty" 2>/dev/null
+    printf '\n' >&2
+    printf -v "$__var" '%s' "$token"
+}
+
 github_token_validate_pull_user() {
     log "Validating GitHub token and fetching user info..."
 
@@ -45,7 +76,7 @@ sudo apt install -y curl git
 
 #--- main ---
 GITHUB_REPO_URL="https://raw.githubusercontent.com/gocloudwave/BuildStep/refs/heads/main/clone_repo.sh"
-read -p "Enter github classic token: " GITHUB_TOKEN
+read_masked_token "Enter GitHub Token (ghp_...): " GITHUB_TOKEN
 
 if [[ -z "$GITHUB_TOKEN" ]]; then
     log "No github token entered."
