@@ -76,7 +76,11 @@ sudo apt install -y curl git
 
 #--- main ---
 GITHUB_REPO_URL="https://raw.githubusercontent.com/gocloudwave/BuildStep/refs/heads/main/clone_repo.sh"
-read_masked_token "Enter GitHub Token (ghp_...): " GITHUB_TOKEN
+
+# Accept GITHUB_TOKEN from environment (AWX) or prompt interactively
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    read_masked_token "Enter GitHub Token (ghp_...): " GITHUB_TOKEN
+fi
 
 if [[ -z "$GITHUB_TOKEN" ]]; then
     log "No github token entered."
