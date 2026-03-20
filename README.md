@@ -26,13 +26,25 @@ wget -q -O get_it.sh https://tinyurl.com/2m6berax && bash get_it.sh
 
 You will be prompted for a GitHub personal access token (`ghp_...`).
 
-### Automated (AWX / non-interactive)
+### Automated (non-interactive)
 
-Set `GITHUB_TOKEN` and optionally `BUILD_OPTION` (See BuildStep repo for)
+Set `GITHUB_TOKEN` and optionally `BUILD_OPTION` as environment variables to run without prompts.
 
 | Variable | Required | Description |
 |---|---|---|
 | `GITHUB_TOKEN` | Yes | GitHub personal access token (`ghp_...`) |
-| `BUILD_OPTION` | No | Clone target: `1`=Sentinel, `2`=Honeypot, `3`=VScan, `4`=Orchestrator |
+| `BUILD_OPTION` | No | Clone target (see BuildStep repo for valid values) |
+
+**Token only** — skips the token prompt, still prompts for clone target:
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx bash get_it.sh
+```
+
+**Fully automated** — skips all prompts:
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx BUILD_OPTION=0 bash get_it.sh
+```
 
 When `BUILD_OPTION` is set, `clone_repo.sh` also runs non-interactively and skips any post-clone follow-up prompts.
