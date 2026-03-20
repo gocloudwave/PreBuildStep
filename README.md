@@ -49,9 +49,7 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxx BUILD_OPTION=0 bash get_it.sh
 
 ```bash
 wget -q -O get_it.sh https://tinyurl.com/2m6berax
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-export BUILD_OPTION=0 
-sudo bash get_it.sh
+sudo GITHUB_TOKEN=ghp_xxxxxxxxxxxx BUILD_OPTION=0 bash get_it.sh
 ```
 
 When `BUILD_OPTION` is set, `clone_repo.sh` also runs non-interactively and skips any post-clone follow-up prompts.
