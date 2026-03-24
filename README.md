@@ -24,6 +24,12 @@ Or without `sudo`:
 wget -q -O get_it.sh https://tinyurl.com/2m6berax && bash get_it.sh
 ```
 
+Direct link (without tinyurl):
+
+```bash
+wget -q -O get_it.sh raw.githubusercontent.com/gocloudwave/PreBuildStep/refs/heads/main/get_it.sh && bash get_it.sh
+```
+
 You will be prompted for a GitHub personal access token (`ghp_...`).
 
 ### Automated (non-interactive)
