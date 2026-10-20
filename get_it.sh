@@ -29,6 +29,16 @@ log() { echo "[$(date '+%F %T')] $*"; }
 # failed step and still print its success line — see the mv/permission bug below.
 trap 'rc=$?; [ $rc -ne 0 ] && log "ABORTED (exit $rc) at line $LINENO — nothing further was run."; exit $rc' EXIT
 
+# The token travels to this URL as an Authorization header, so a mistyped or stray
+# CLONE_REPO_URL must never receive it: only GitHub's raw host for gocloudwave is accepted.
+# The refusal names the host only, never the full URL (it could carry credentials).
+case "$GITHUB_REPO_URL" in
+    https://raw.githubusercontent.com/gocloudwave/*) ;;
+    *)
+        log "ERROR: CLONE_REPO_URL must start with https://raw.githubusercontent.com/gocloudwave/ (host given: $(printf '%s' "$GITHUB_REPO_URL" | sed -E 's#^([A-Za-z]+://)?([^@/]*@)?([^/?#]*).*#\3#')). The token was not sent."
+        exit 1 ;;
+esac
+
 # Read a token with * masking — supports typing, paste, and backspace.
 # Usage: read_masked_token "Prompt: " VAR_NAME
 read_masked_token() {
