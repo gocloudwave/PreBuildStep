@@ -1,35 +1,38 @@
 #!/bin/bash
 #
-# get_it.sh — the first stage of a two-stage bootstrap.
+# get_it.sh — bootstrap a fresh host.
 #
-# Installs curl and git, checks a GitHub token, downloads the second stage with it,
-# and runs it.
+# Installs prerequisites, validates a GitHub PAT, downloads clone_repo.sh from the
+# BuildStep repo, and runs it. clone_repo.sh does the actual repo clone into /opt.
 #
-# Environment (all optional):
-#   GITHUB_TOKEN     GitHub token. Asked for, with masked input, when unset.
-#   BUILD_OPTION     passed to the second stage
-#   GIT_BRANCH       passed to the second stage
-#   RUN_BUILD        passed to the second stage
-#   CLONE_REPO_URL   a different second stage to run (same organization only)
+# Environment passthrough (all optional — prompts interactively when unset):
+#   GITHUB_TOKEN   GitHub PAT (ghp_...). Prompted with * masking when unset.
+#   BUILD_OPTION   The menu choice, by number — skips the menu.
+#   GIT_BRANCH     Branch for clone_repo.sh to check out (default: main).
+#   RUN_BUILD      y = clone_repo.sh starts the build after the clone without asking.
 #
-# The token is the first thing asked, before the prerequisites install, so a run can
-# be left alone after it. While they install, the token waits in a file only this user
-# can read, on a memory-backed filesystem where there is one. The file is read back
-# and deleted as soon as the prerequisites are in, and on any earlier stop.
+# THE TOKEN IS THE FIRST THING ASKED, before the prerequisites install, so the one
+# question comes while the operator is still at the keyboard: the apt run can take
+# minutes. With BUILD_OPTION, GIT_BRANCH and RUN_BUILD exported, nothing after it asks
+# anything, and the run can be left alone. While apt runs, the token waits in a file
+# only this user can read, on a memory-backed filesystem where there is one. The file
+# is read back and deleted as soon as the prerequisites are in, and on any earlier stop.
 
 set -euo pipefail
 
 # --- CONFIG ---
 GITHUB_API_USER="https://api.github.com/user"
-# Overridable so that a candidate second stage can be tried before it replaces the
-# default. Unset = the default URL.
+# Overridable ONLY so a candidate clone_repo.sh can be validated end-to-end before it
+# is merged to BuildStep main (every host fetches main, so it must never be the guinea
+# pig). Unset = the production URL, i.e. unchanged behaviour.
 GITHUB_REPO_URL="${CLONE_REPO_URL:-https://raw.githubusercontent.com/gocloudwave/BuildStep/refs/heads/main/clone_repo.sh}"
 CLONE_REPO_DEST="/opt/clone_repo.sh"
 # --------------
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-# Any unhandled failure lands here, so a failed step is never followed by a success line.
+# Any unhandled failure lands here. Without this the script used to sail past a
+# failed step and still print its success line — see the mv/permission bug below.
 # The same trap deletes the token file (below), so no way out of this script leaves it behind.
 TOKEN_FILE=""
 drop_token_file() { [ -n "$TOKEN_FILE" ] && rm -f -- "$TOKEN_FILE"; TOKEN_FILE=""; return 0; }
@@ -38,7 +41,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
 # The token travels to this URL as an Authorization header, so a mistyped or stray
-# CLONE_REPO_URL must never receive it: only this organization's raw GitHub host is accepted.
+# CLONE_REPO_URL must never receive it: only GitHub's raw host for gocloudwave is accepted.
 # The refusal names the host only, never the full URL (it could carry credentials).
 case "$GITHUB_REPO_URL" in
     https://raw.githubusercontent.com/gocloudwave/*) ;;
@@ -93,7 +96,8 @@ github_token_validate_pull_user() {
 
     if [ "$http_code" != "200" ]; then
         log "ERROR: GitHub token validation failed (HTTP $http_code)."
-        # 401 = an expired or revoked token: say so, rather than dumping a raw API body.
+        # 401 = expired/revoked PAT. This is the single most common field failure,
+        # so name it explicitly rather than dumping a raw API body.
         [ "$http_code" = "401" ] && log "       The token is expired or revoked — generate a new PAT."
         [ "$http_code" = "000" ] && log "       Could not reach api.github.com — check network/DNS/proxy."
         rm -f "$body_file"
@@ -170,8 +174,11 @@ fi
 
 [ -n "$TOKEN_CHECKED" ] || github_token_validate_pull_user
 
-# Download straight to the destination as root: it is root-owned, so a download into
-# the current folder followed by a move fails for a caller who is not root.
+# Download straight to /opt as root. The previous version curl'd into the CWD and
+# then ran a bare `mv clone_repo.sh /opt/` with NO sudo — /opt is root-owned, so the
+# documented non-root invocation (`bash get_it.sh`, per the README) always failed
+# there with "Permission denied". Worse, with no `set -e` the script carried on to
+# run the file it had failed to place, then reported success.
 log "Downloading clone_repo.sh to ${CLONE_REPO_DEST} ..."
 $SUDO curl -sS -f -o "$CLONE_REPO_DEST" \
     -H "Authorization: token $GITHUB_TOKEN" \
@@ -185,8 +192,8 @@ export BUILD_OPTION="${BUILD_OPTION:-}"
 export GIT_BRANCH="${GIT_BRANCH:-}"
 export RUN_BUILD="${RUN_BUILD:-}"
 
-# --preserve-env rather than `sudo env VAR=VALUE ...`: the latter puts the token in
-# argv, where any user on the machine can read it out of `ps`.
+# --preserve-env rather than `sudo env VAR=VALUE ...`: the latter puts the PAT in
+# argv, where any user on the box can read it out of `ps`.
 log "Running clone_repo.sh ..."
 if [ -n "$SUDO" ]; then
     $SUDO --preserve-env=GITHUB_USER,GITHUB_TOKEN,BUILD_OPTION,GIT_BRANCH,RUN_BUILD \
@@ -195,7 +202,8 @@ else
     bash "$CLONE_REPO_DEST"
 fi
 
-# Remove THIS script by its own path, so it goes whatever the caller's current folder is.
+# Remove THIS script by its own path — the old `rm -f get_it.sh` was relative and
+# silently missed whenever the caller's CWD wasn't where the file lived.
 log "Removing get_it.sh for security."
 _self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || true)"
 [ -n "$_self" ] && [ -f "$_self" ] && $SUDO rm -f -- "$_self" || true
