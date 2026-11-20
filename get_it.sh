@@ -146,10 +146,21 @@ fi
 # apt update/upgrade is best-effort: a warning-level repo hiccup must not abort the
 # bootstrap under `set -e`. What actually matters is that curl and git exist, so
 # verify that explicitly instead of trusting apt's exit code.
+#
+# Nothing in the apt run may stop to ask a question, or a run left alone waits forever:
+# debconf takes each package's default answer, and a changed config file keeps the local
+# copy. needrestart is skipped as well, because it can restart the services that the
+# operator's remote session runs under and so end this script mid-upgrade. A reboot after
+# the build loads any new kernel or library the upgrade brought in.
+APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1)
+APT_OPTS=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 log "Installing prerequisites (curl, git)..."
-$SUDO apt-get update -y  || log "WARN: apt-get update returned non-zero; continuing."
-$SUDO apt-get upgrade -y || log "WARN: apt-get upgrade returned non-zero; continuing."
-$SUDO apt-get install -y curl git || log "WARN: apt-get install returned non-zero; verifying anyway."
+$SUDO "${APT_ENV[@]}" apt-get update -y || log "WARN: apt-get update returned non-zero; continuing."
+$SUDO "${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" upgrade -y || log "WARN: apt-get upgrade returned non-zero; continuing."
+$SUDO "${APT_ENV[@]}" apt-get "${APT_OPTS[@]}" install -y curl git || log "WARN: apt-get install returned non-zero; verifying anyway."
+if [ -e /var/run/reboot-required ]; then
+    log "NOTE: the upgrade needs a reboot to take full effect; reboot once the build is done."
+fi
 
 missing=""
 for bin in curl git; do
