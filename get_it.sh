@@ -1,9 +1,6 @@
 #!/bin/bash
 #
-# get_it.sh — bootstrap a fresh host.
-#
-# Installs prerequisites, validates a GitHub PAT, downloads clone_repo.sh from the
-# BuildStep repo, and runs it. clone_repo.sh does the actual repo clone into /opt.
+# get_it.sh
 #
 # Environment passthrough (all optional — prompts interactively when unset):
 #   GITHUB_TOKEN   GitHub PAT (ghp_...). Prompted with * masking when unset.
@@ -11,38 +8,22 @@
 #   GIT_BRANCH     Branch for clone_repo.sh to check out (default: main).
 #   RUN_BUILD      y = clone_repo.sh starts the build after the clone without asking.
 #
-# THE TOKEN IS THE FIRST THING ASKED, before the prerequisites install, so the one
-# question comes while the operator is still at the keyboard: the apt run can take
-# minutes. With BUILD_OPTION, GIT_BRANCH and RUN_BUILD exported, nothing after it asks
-# anything, and the run can be left alone. While apt runs, the token waits in a file
-# only this user can read, on a memory-backed filesystem where there is one. The file
-# is read back and deleted as soon as the prerequisites are in, and on any earlier stop.
-
 set -euo pipefail
 
 # --- CONFIG ---
 GITHUB_API_USER="https://api.github.com/user"
-# Overridable ONLY so a candidate clone_repo.sh can be validated end-to-end before it
-# is merged to BuildStep main (every host fetches main, so it must never be the guinea
-# pig). Unset = the production URL, i.e. unchanged behaviour.
 GITHUB_REPO_URL="${CLONE_REPO_URL:-https://raw.githubusercontent.com/gocloudwave/BuildStep/refs/heads/main/clone_repo.sh}"
 CLONE_REPO_DEST="/opt/clone_repo.sh"
 # --------------
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-# Any unhandled failure lands here. Without this the script used to sail past a
-# failed step and still print its success line — see the mv/permission bug below.
-# The same trap deletes the token file (below), so no way out of this script leaves it behind.
 TOKEN_FILE=""
 drop_token_file() { [ -n "$TOKEN_FILE" ] && rm -f -- "$TOKEN_FILE"; TOKEN_FILE=""; return 0; }
 trap 'rc=$?; drop_token_file; [ $rc -ne 0 ] && log "ABORTED (exit $rc) at line $LINENO — nothing further was run."; exit $rc' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 
-# The token travels to this URL as an Authorization header, so a mistyped or stray
-# CLONE_REPO_URL must never receive it: only GitHub's raw host for gocloudwave is accepted.
-# The refusal names the host only, never the full URL (it could carry credentials).
 case "$GITHUB_REPO_URL" in
     https://raw.githubusercontent.com/gocloudwave/*) ;;
     *)
@@ -121,10 +102,7 @@ else
     SUDO=""
 fi
 
-# --- the token, first ---
-# Asked here, not after the prerequisites, so that a run can be left alone from this
-# point on. Where curl is already installed the token is checked at once, while the
-# operator is still watching; otherwise it is checked after the prerequisites, as before.
+# --- the token ---
 TOKEN_CHECKED=""
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
     read_masked_token "Enter GitHub Token (ghp_...): " GITHUB_TOKEN
@@ -143,15 +121,6 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
 fi
 
 # --- prerequisites ---
-# apt update/upgrade is best-effort: a warning-level repo hiccup must not abort the
-# bootstrap under `set -e`. What actually matters is that curl and git exist, so
-# verify that explicitly instead of trusting apt's exit code.
-#
-# Nothing in the apt run may stop to ask a question, or a run left alone waits forever:
-# debconf takes each package's default answer, and a changed config file keeps the local
-# copy. needrestart is skipped as well, because it can restart the services that the
-# operator's remote session runs under and so end this script mid-upgrade. A reboot after
-# the build loads any new kernel or library the upgrade brought in.
 APT_ENV=(env DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1)
 APT_OPTS=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 log "Installing prerequisites (curl, git)..."
@@ -172,7 +141,6 @@ if [ -n "$missing" ]; then
 fi
 
 # --- main ---
-# The prerequisites are in: take the token back and delete its file before anything else.
 if [ -n "$TOKEN_FILE" ]; then
     GITHUB_TOKEN=$(<"$TOKEN_FILE")
     drop_token_file
@@ -185,11 +153,7 @@ fi
 
 [ -n "$TOKEN_CHECKED" ] || github_token_validate_pull_user
 
-# Download straight to /opt as root. The previous version curl'd into the CWD and
-# then ran a bare `mv clone_repo.sh /opt/` with NO sudo — /opt is root-owned, so the
-# documented non-root invocation (`bash get_it.sh`, per the README) always failed
-# there with "Permission denied". Worse, with no `set -e` the script carried on to
-# run the file it had failed to place, then reported success.
+# Download straight to /opt as root.
 log "Downloading clone_repo.sh to ${CLONE_REPO_DEST} ..."
 $SUDO curl -sS -f -o "$CLONE_REPO_DEST" \
     -H "Authorization: token $GITHUB_TOKEN" \
@@ -203,8 +167,7 @@ export BUILD_OPTION="${BUILD_OPTION:-}"
 export GIT_BRANCH="${GIT_BRANCH:-}"
 export RUN_BUILD="${RUN_BUILD:-}"
 
-# --preserve-env rather than `sudo env VAR=VALUE ...`: the latter puts the PAT in
-# argv, where any user on the box can read it out of `ps`.
+# --preserve-env rather than `sudo env VAR=VALUE ...`
 log "Running clone_repo.sh ..."
 if [ -n "$SUDO" ]; then
     $SUDO --preserve-env=GITHUB_USER,GITHUB_TOKEN,BUILD_OPTION,GIT_BRANCH,RUN_BUILD \
@@ -213,8 +176,7 @@ else
     bash "$CLONE_REPO_DEST"
 fi
 
-# Remove THIS script by its own path — the old `rm -f get_it.sh` was relative and
-# silently missed whenever the caller's CWD wasn't where the file lived.
+# Remove this script by its own path.
 log "Removing get_it.sh for security."
 _self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || true)"
 [ -n "$_self" ] && [ -f "$_self" ] && $SUDO rm -f -- "$_self" || true
